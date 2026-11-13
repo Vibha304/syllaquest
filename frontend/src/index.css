@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 245 245 251;
+  --card: 255 255 255;
+  --soft: 238 239 248;
+  --line: 224 226 240;
+  --ink: 24 26 48;
+  --mute: 98 103 134;
+  --brand: 83 72 224;
+  --xp: 217 119 6;
+}
+.dark {
+  --bg: 10 12 24;
+  --card: 19 22 40;
+  --soft: 28 32 56;
+  --line: 44 49 82;
+  --ink: 235 237 250;
+  --mute: 152 158 194;
+  --brand: 129 120 255;
+  --xp: 251 191 36;
+  color-scheme: dark;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { @apply bg-bg text-ink font-sans antialiased; }
+  h1, h2, h3 { @apply font-display tracking-tight; }
+  :focus-visible { @apply outline-none ring-2 ring-brand/60 ring-offset-2 ring-offset-bg; }
+  ::selection { background: rgb(var(--brand) / 0.25); }
+}
+
+@layer components {
+  .card { @apply bg-card border border-line rounded-2xl shadow-card; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap; }
+  .btn-primary { @apply btn bg-brand text-white hover:brightness-110 shadow-[0_6px_18px_-6px_rgb(var(--brand)/0.7)]; }
+  .dark .btn-primary { @apply text-[#0b0d1a]; }
+  .btn-soft { @apply btn bg-soft text-ink hover:bg-line; }
+  .btn-ghost { @apply btn text-mute hover:text-ink hover:bg-soft; }
+  .btn-danger { @apply btn bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-300; }
+  .btn-sm { @apply px-3 py-1.5 text-xs rounded-lg; }
+  .input { @apply w-full rounded-xl border border-line bg-card px-3.5 py-2.5 text-sm text-ink placeholder:text-mute/70 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25; }
+  .label { @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-mute; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line bg-soft px-2.5 py-1 text-xs font-medium text-mute; }
+  .chip-on { @apply border-brand bg-brand/10 text-brand; }
+  .h-page { @apply text-2xl font-bold sm:text-3xl; }
+  .sub { @apply text-sm text-mute; }
+  .th { @apply px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-mute; }
+  .td { @apply px-3 py-3 text-sm align-top; }
+}
+
+.grid-bg {
+  background-image: radial-gradient(rgb(var(--line) / 0.9) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.recharts-text { fill: rgb(var(--mute)); font-size: 11px; }
+.recharts-cartesian-grid line { stroke: rgb(var(--line)); }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

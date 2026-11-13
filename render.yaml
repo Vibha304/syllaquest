@@ -1,0 +1,17 @@
+# Render Blueprint: free web service built from the Dockerfile.
+# Set DATABASE_URL (free Neon PostgreSQL) and an AI key in the Render dashboard.
+services:
+  - type: web
+    name: syllaquest
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
