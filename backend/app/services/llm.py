@@ -6,6 +6,7 @@ When none is configured the app uses the built-in offline generator.
 """
 import json
 import re
+import time
 
 import httpx
 
@@ -16,17 +17,32 @@ class LLMError(RuntimeError):
     pass
 
 
-def provider() -> str:
+RETRY_STATUS = {429, 500, 502, 503, 504}   # overloaded / rate limited: worth retrying
+RETRY_WAITS = [2, 5]                       # seconds between attempts
+last_used: str | None = None               # provider that answered the most recent call
+
+
+def providers() -> list[str]:
+    """Configured providers in order of preference. Later ones are automatic backups."""
     p = config.LLM_PROVIDER
     if p == "offline":
-        return "offline"
-    if p in ("gemini", "auto") and config.GEMINI_API_KEY:
-        return "gemini"
-    if p in ("groq", "auto") and config.GROQ_API_KEY:
-        return "groq"
-    if p in ("ollama", "auto") and config.OLLAMA_URL:
-        return "ollama"
-    return "offline"
+        return []
+    available = []
+    if config.GEMINI_API_KEY:
+        available.append("gemini")
+    if config.GROQ_API_KEY:
+        available.append("groq")
+    if config.OLLAMA_URL:
+        available.append("ollama")
+    if p in available:  # an explicit choice goes first, the rest stay as backups
+        available.remove(p)
+        available.insert(0, p)
+    return available
+
+
+def provider() -> str:
+    found = providers()
+    return found[0] if found else "offline"
 
 
 def model_name() -> str:
@@ -47,56 +63,72 @@ def _parse_json(text: str):
         raise
 
 
+def _call(client: httpx.Client, p: str, system: str, prompt: str, temperature: float) -> str:
+    if p == "gemini":
+        r = client.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent",
+            headers={"x-goog-api-key": config.GEMINI_API_KEY},
+            json={
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"temperature": temperature, "responseMimeType": "application/json"},
+            },
+        )
+        r.raise_for_status()
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        return "".join(part.get("text", "") for part in parts)
+    if p == "groq":
+        r = client.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
+            json={
+                "model": config.GROQ_MODEL,
+                "temperature": temperature,
+                "response_format": {"type": "json_object"},
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            },
+        )
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"]
+    r = client.post(
+        f"{config.OLLAMA_URL.rstrip('/')}/api/chat",
+        json={
+            "model": config.OLLAMA_MODEL,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": temperature},
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        },
+    )
+    r.raise_for_status()
+    return r.json()["message"]["content"]
+
+
 def chat_json(system: str, prompt: str, temperature: float = 0.6):
-    """Send a prompt and return the parsed JSON reply."""
-    p = provider()
-    try:
-        with httpx.Client(timeout=config.LLM_TIMEOUT) as client:
-            if p == "gemini":
-                r = client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/{config.GEMINI_MODEL}:generateContent",
-                    headers={"x-goog-api-key": config.GEMINI_API_KEY},
-                    json={
-                        "systemInstruction": {"parts": [{"text": system}]},
-                        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                        "generationConfig": {"temperature": temperature, "responseMimeType": "application/json"},
-                    },
-                )
-                r.raise_for_status()
-                parts = r.json()["candidates"][0]["content"]["parts"]
-                text = "".join(part.get("text", "") for part in parts)
-            elif p == "groq":
-                r = client.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {config.GROQ_API_KEY}"},
-                    json={
-                        "model": config.GROQ_MODEL,
-                        "temperature": temperature,
-                        "response_format": {"type": "json_object"},
-                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    },
-                )
-                r.raise_for_status()
-                text = r.json()["choices"][0]["message"]["content"]
-            elif p == "ollama":
-                r = client.post(
-                    f"{config.OLLAMA_URL.rstrip('/')}/api/chat",
-                    json={
-                        "model": config.OLLAMA_MODEL,
-                        "stream": False,
-                        "format": "json",
-                        "options": {"temperature": temperature},
-                        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                    },
-                )
-                r.raise_for_status()
-                text = r.json()["message"]["content"]
-            else:
-                raise LLMError("No LLM provider configured")
-        return _parse_json(text)
-    except LLMError:
-        raise
-    except httpx.HTTPStatusError as exc:
-        raise LLMError(f"{p} API returned {exc.response.status_code}: {exc.response.text[:200]}") from exc
-    except Exception as exc:  # network errors, malformed JSON, unexpected payloads
-        raise LLMError(f"{p} request failed: {exc}") from exc
+    """Send a prompt and return the parsed JSON reply.
+
+    A busy or rate-limited provider (429/5xx) is retried a couple of times; if it still
+    fails, the next configured provider is tried before giving up."""
+    global last_used
+    chain = providers()
+    if not chain:
+        raise LLMError("No LLM provider configured")
+    errors: list[str] = []
+    with httpx.Client(timeout=config.LLM_TIMEOUT) as client:
+        for p in chain:
+            for attempt in range(len(RETRY_WAITS) + 1):
+                try:
+                    data = _parse_json(_call(client, p, system, prompt, temperature))
+                    last_used = p
+                    return data
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    error = f"{p} API returned {status}: {exc.response.text[:200]}"
+                    retryable = status in RETRY_STATUS
+                except Exception as exc:  # network errors, malformed JSON, unexpected payloads
+                    error, retryable = f"{p} request failed: {exc}", True
+                if not retryable or attempt == len(RETRY_WAITS):
+                    errors.append(error)
+                    break
+                time.sleep(RETRY_WAITS[attempt])
+    raise LLMError("; ".join(errors))

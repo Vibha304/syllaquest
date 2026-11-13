@@ -357,7 +357,9 @@ def generate_questions(course_name: str, topic, all_topics, n: int, types: list[
 
     if engine != "offline":
         try:
-            for raw in _llm_generate(course_name, topic, slots, existing_texts):
+            raw_items = _llm_generate(course_name, topic, slots, existing_texts)
+            engine = llm.last_used or engine
+            for raw in raw_items:
                 q = normalize_question(raw, rng)
                 if q and norm(q["text"]) not in existing:
                     existing.add(norm(q["text"]))

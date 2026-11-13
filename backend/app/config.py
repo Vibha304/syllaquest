@@ -43,7 +43,7 @@ CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if 
 # --- LLM providers (all have a free option) ---------------------------------
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "auto").lower()  # auto|gemini|groq|ollama|offline
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "")  # e.g. http://localhost:11434
