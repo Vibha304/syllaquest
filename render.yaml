@@ -5,6 +5,7 @@ services:
     name: syllaquest
     runtime: docker
     plan: free
+    region: singapore
     healthCheckPath: /api/health
     envVars:
       - key: SECRET_KEY
